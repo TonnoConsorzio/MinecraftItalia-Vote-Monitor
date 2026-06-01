@@ -1,0 +1,60 @@
+name: Minecraft Italia Vote Monitor
+
+on:
+  schedule:
+    # Esegue ogni giorno alle 21:55 UTC (che corrisponde alle 23:55 CEST in Italia con l'ora legale)
+    # Nota: GitHub Actions potrebbe avere qualche minuto di ritardo nell'avvio degli scheduled jobs.
+    - cron: '55 21 * * *'
+  workflow_dispatch:
+    # Ti permette di avviare lo script manualmente con un clic dalla scheda "Actions" su GitHub!
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+    if: github.repository != 'TonnoConsorzio/MinecraftItalia-Vote-Monitor'
+    environment: Python
+    permissions:
+      # Permessi necessari per permettere all'Action di fare il commit e push del JSON aggiornato
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Assicura che i file aggiornati vengano committati sul branch corretto
+          ref: main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip' # Velocizza le esecuzioni successive
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Vote Monitor
+        env:
+          # Inietta in modo sicuro le credenziali segrete salvate nei GitHub Repository Secrets
+          SERVER_ID: ${{ secrets.SERVER_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python minecraft_vote_monitor.py
+
+      - name: Commit & Push votes history database
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Aggiunge solo il database dello storico
+          git add votes_history.json
+          
+          # Esegue il commit solo se ci sono modifiche effettive nel JSON
+          if git diff --cached --quiet; then
+            echo "Nessuna variazione nel database storico dei voti. Salto il commit."
+          else
+            git commit -m "Aggiornamento storico voti automatico [skip ci]"
+            git push origin main
+          fi
