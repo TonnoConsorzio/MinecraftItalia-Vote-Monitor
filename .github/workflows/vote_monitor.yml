@@ -40,6 +40,7 @@ jobs:
           # Inietta in modo sicuro le credenziali segrete salvate nei GitHub Repository Secrets
           SERVER_ID: ${{ secrets.SERVER_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_ROLE_PINGS: ${{ secrets.DISCORD_ROLE_PINGS }}
         run: |
           python minecraft_vote_monitor.py
 

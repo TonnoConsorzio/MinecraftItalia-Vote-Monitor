@@ -310,7 +310,13 @@ def send_daily_report(date_str: str, voted_players: List[str], skipped_players: 
         }
     }
     
+    role_pings = os.getenv("DISCORD_ROLE_PINGS")
     payload = {"embeds": [embed]}
+    if role_pings:
+        mentions = [f"<@&{r.strip()}>" for r in role_pings.split(",") if r.strip().isdigit()]
+        if mentions:
+            payload["content"] = " ".join(mentions)
+            
     return send_discord_webhook(payload)
 
 # ==========================================
@@ -534,9 +540,16 @@ def process_monthly_and_send_report(
     path_m, path_a = generate_graphics(month_votes, all_time_votes, nome_mese, date_obj.year)
     
     # Costruisce il messaggio multiparte per Discord Webhook
+    role_pings = os.getenv("DISCORD_ROLE_PINGS")
+    pings_str = ""
+    if role_pings:
+        mentions = [f"<@&{r.strip()}>" for r in role_pings.split(",") if r.strip().isdigit()]
+        if mentions:
+            pings_str = " ".join(mentions) + "\n"
+            
     payload = {
         "payload_json": json.dumps({
-            "content": f"🎉 **REPORT MENSILE VOTI - {nome_mese.upper()} {date_obj.year}** 🎉\nSi è concluso un altro mese di supporto al server! Ecco i dati dettagliati.",
+            "content": f"{pings_str}🎉 **REPORT MENSILE VOTI - {nome_mese.upper()} {date_obj.year}** 🎉\nSi è concluso un altro mese di supporto al server! Ecco i dati dettagliati.",
             "embeds": [
                 {
                     "title": f"📊 Metriche e Statistiche di Fine Mese",
