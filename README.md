@@ -92,24 +92,73 @@ Puoi testare il funzionamento dello script, l'invio al Webhook Discord e la gene
 
 ---
 
-## ⏱️ Automazione in 3 Fasi con Cron (Linux)
+## ⏱️ Automazione in 3 Fasi (Cron Job)
 
-Per garantire la massima stabilità ed evitare disturbi nelle ore notturne, lo script supporta un'esecuzione suddivisa in 3 fasi giornaliere. Questo flusso evita anche i ritardi dei server di GitHub Actions eseguendo lo script in modo forzato e preciso tramite crontab:
+Per garantire la massima puntualità ed evitare i ritardi fisiologici delle esecuzioni pianificate native di GitHub Actions, lo script supporta una suddivisione del monitoraggio in **3 fasi giornaliere**.
 
-1. **Ore 20:00 - Sollecito Voti Pomeridiano** (invia un report di sollecito su chi manca senza taggare nessuno):
-   ```text
-   00 20 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --reminder > /dev/null 2>&1
-   ```
+Puoi implementare questa automazione in due modi: tramite un **Servizio Cron Online** (consigliato, per un'esecuzione 100% cloud-free) o tramite il **Crontab locale** di Linux.
 
-2. **Ore 23:55 - Raccolta Silenziosa dei Voti** (scarica i voti del giorno e li salva silenziosamente nel file `votes_history.json` prima del reset di mezzanotte, senza inviare notifiche):
-   ```text
-   55 23 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --collect > /dev/null 2>&1
-   ```
+---
 
-3. **Ore 09:00 (Giorno Successivo) - Riepilogo Voti Giornaliero e Mensile** (legge lo storico di ieri, invia il report Embed definitivo a Discord con i tag dei ruoli e, se ieri era fine mese, genera e allega anche i grafici mensili):
-   ```text
-   00 09 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --send-summary > /dev/null 2>&1
-   ```
+### 🌐 Opzione A: Serverless Cloud tramite Servizio Cron Online (Consigliato)
+
+Puoi utilizzare un servizio gratuito di Web-Cron online (come [Cron-job.org](https://cron-job.org/)) per forzare l'avvio delle 3 fasi del workflow di GitHub Actions tramite le API di GitHub.
+
+#### 1. Genera un GitHub Personal Access Token (PAT)
+Per consentire al servizio esterno di avviare il workflow, devi generare un token di accesso:
+1. Su GitHub, vai su **Settings** (del tuo account) > **Developer Settings** > **Personal Access Tokens** > **Tokens (classic)**.
+2. Clicca su **Generate new token (classic)**.
+3. Seleziona lo scope **`workflow`** (o `repo` se il repository è privato) e genera il token.
+4. Copia il token generato (lo userai nei passaggi successivi).
+
+#### 2. Configura le 3 Invocazioni sul Servizio Cron
+Crea tre cron job differenti sul pannello del tuo servizio Cron Web con le seguenti impostazioni comuni:
+* **Metodo HTTP**: `POST`
+* **URL**: `https://api.github.com/repos/<IL_TUO_USER_GITHUB>/<IL_TUO_REPOSITOR_BOT>/actions/workflows/vote_monitor.yml/dispatches`
+* **Header Richiesti**:
+  * `Authorization`: `Bearer <IL_TUO_GITHUB_PAT>`
+  * `Accept`: `application/vnd.github.v3+json`
+  * `User-Agent`: `CronJob-Service` (qualsiasi stringa identificativa, richiesta da GitHub)
+
+Quindi definisci i diversi corpi della richiesta (`Body / Payload`) e gli orari:
+
+1. **Ore 20:00 (Sollecito Pomeridiano)**:
+   * **Orario**: Ogni giorno alle `20:00` (ore `18:00` UTC)
+   * **Body (JSON)**:
+     ```json
+     {"ref": "main", "inputs": {"phase": "--reminder"}}
+     ```
+2. **Ore 23:55 (Raccolta Silenziosa)**:
+   * **Orario**: Ogni giorno alle `23:55` (ore `21:55` UTC)
+   * **Body (JSON)**:
+     ```json
+     {"ref": "main", "inputs": {"phase": "--collect"}}
+     ```
+3. **Ore 09:00 (Riepilogo Giornaliero e Mensile)**:
+   * **Orario**: Ogni giorno alle `09:00` (ore `07:00` UTC)
+   * **Body (JSON)**:
+     ```json
+     {"ref": "main", "inputs": {"phase": "--send-summary"}}
+     ```
+
+---
+
+### 🖥️ Opzione B: Esecuzione Locale tramite Crontab (Linux)
+
+Se preferisci ospitare ed eseguire lo script in locale sul tuo server o VPS, apri il crontab del tuo sistema (`crontab -e`) e inserisci le seguenti tre righe (sostituendo `/percorso/assoluto/` con la cartella reale del tuo progetto):
+
+```text
+# 1. Ore 20:00 - Sollecito voti pomeridiano (senza tag)
+00 20 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --reminder > /dev/null 2>&1
+
+# 2. Ore 23:55 - Raccolta silenziosa dei voti odierni
+55 23 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --collect > /dev/null 2>&1
+
+# 3. Ore 09:00 (Giorno dopo) - Invio riepilogo definitivo (con tag) e grafici mensili
+00 09 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --send-summary > /dev/null 2>&1
+```
+
+---
 
 ---
 

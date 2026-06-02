@@ -2,11 +2,22 @@ name: Minecraft Italia Vote Monitor
 
 on:
   schedule:
-    # Esegue ogni giorno alle 21:55 UTC (che corrisponde alle 23:55 CEST in Italia con l'ora legale)
-    # Nota: GitHub Actions potrebbe avere qualche minuto di ritardo nell'avvio degli scheduled jobs.
+    # Esecuzione di default della raccolta alle 23:55 CEST (21:55 UTC) se non interrotta
     - cron: '55 21 * * *'
   workflow_dispatch:
-    # Ti permette di avviare lo script manualmente con un clic dalla scheda "Actions" su GitHub!
+    inputs:
+      phase:
+        description: 'Fase dello script da eseguire'
+        required: true
+        default: '--collect'
+        type: choice
+        options:
+          - '--reminder'
+          - '--collect'
+          - '--send-summary'
+          - '--test'
+          - '--test-daily'
+          - '--test-monthly'
 
 jobs:
   run-monitor:
@@ -42,7 +53,11 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_ROLE_PINGS: ${{ secrets.DISCORD_ROLE_PINGS }}
         run: |
-          python minecraft_vote_monitor.py
+          PHASE="${{ github.event.inputs.phase }}"
+          if [ -z "$PHASE" ]; then
+            PHASE="--collect"
+          fi
+          python minecraft_vote_monitor.py $PHASE
 
       - name: Commit & Push votes history database
         run: |
