@@ -319,6 +319,37 @@ def send_daily_report(date_str: str, voted_players: List[str], skipped_players: 
             
     return send_discord_webhook(payload)
 
+def send_reminder_report(voted_players: List[str], skipped_players: List[str]) -> bool:
+    """Invia un messaggio di sollecito pomeridiano (es. alle 20:00) senza taggare nessuno."""
+    voted_text = "\n".join([f"🔹 **{p}**" for p in voted_players]) if voted_players else "*Nessun voto registrato finora.*"
+    skipped_text = "\n".join([f"🔸 {p}" for p in skipped_players]) if skipped_players else "*Fantastico! Tutti hanno già votato!* 🎉"
+    
+    embed = {
+        "title": f"🔔 Stato Voti Odierno - Sollecito delle 20:00",
+        "description": "Ecco il riepilogo pomeridiano dei voti del server su Minecraft Italia.\n*Chi manca all'appello ha tempo fino a mezzanotte per supportare il server!*",
+        "color": 16254464,  # Arancio caldo
+        "fields": [
+            {
+                "name": f"✅ Giocatori che hanno già votato ({len(voted_players)})",
+                "value": voted_text,
+                "inline": False
+            },
+            {
+                "name": f"❌ Giocatori mancanti all'appello ({len(skipped_players)})",
+                "value": skipped_text,
+                "inline": False
+            }
+        ],
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "footer": {
+            "text": "Made by Alessio Bellan • Sollecito automatico"
+        }
+    }
+    
+    payload = {"embeds": [embed]}
+    # NOTA: content è omesso per non taggare alcun ruolo/utente
+    return send_discord_webhook(payload)
+
 # ==========================================
 # REPORT MENSILE E GRAFICI (MATPLOTLIB)
 # ==========================================
@@ -619,6 +650,9 @@ def main():
     parser.add_argument("--test", action="store_true", help="Esegue sia il test del report giornaliero reale che quello mensile con grafici.")
     parser.add_argument("--test-daily", action="store_true", help="Esegue solo il test del report giornaliero reale senza salvare nel database.")
     parser.add_argument("--test-monthly", action="store_true", help="Esegue solo il test del report mensile con grafici ed invio su Discord.")
+    parser.add_argument("--collect", action="store_true", help="Salva i voti odierni nel database locale silenziosamente (da eseguire alle 23:55).")
+    parser.add_argument("--send-summary", action="store_true", help="Invia il report dei voti di ieri ed eventuale report mensile (da eseguire alle 09:00).")
+    parser.add_argument("--reminder", action="store_true", help="Invia un sollecito pomeridiano con chi ha votato oggi e chi manca (da eseguire alle 20:00).")
     args = parser.parse_args()
 
     # Se viene richiesto un test generico, attiviamo sia il giornaliero che il mensile
@@ -627,11 +661,14 @@ def main():
         args.test_monthly = True
 
     is_test_mode = args.test_daily or args.test_monthly
+    is_action_mode = args.collect or args.send_summary or args.reminder
 
     if is_test_mode:
         logger.info("=== MODALITÀ DI TEST ATTIVA ===")
+    elif is_action_mode:
+        logger.info("=== AVVIO AZIONE MONITOR IN 3 FASI ===")
     else:
-        logger.info("=== AVVIO SCRIP MINECRAFT ITALIA VOTE MONITOR ===")
+        logger.info("=== AVVIO SCRIPT MINECRAFT ITALIA VOTE MONITOR (MODALITÀ STANDARD CUMULATIVA) ===")
     
     # 1. Determinazione della data odierna dello script
     today = datetime.date.today()
@@ -648,48 +685,116 @@ def main():
     
     votes_history = load_votes_history()
     
-    # Esecuzione Flusso Giornaliero (standard o test)
-    if not is_test_mode or args.test_daily:
-        # 3. Interrogazione dell'API Minecraft Italia
+    # ==========================================
+    # CASO 1: MODALITÀ REMINDER (Sollecito ore 20:00)
+    # ==========================================
+    if args.reminder:
+        logger.info("Avvio del sollecito voti pomeridiano...")
         try:
             raw_votes = fetch_today_votes(SERVER_ID)
         except Exception as e:
-            logger.critical(f"Lo script si interrompe a causa del fallimento della chiamata API: {e}")
+            logger.critical(f"Impossibile completare il sollecito a causa del fallimento API: {e}")
             sys.exit(0)
             
-        # 4. Confronto dei dati del giorno attuale
         voted_players, skipped_players = process_daily_votes(raw_votes, monitored_players)
+        if send_reminder_report(voted_players, skipped_players):
+            logger.info("Sollecito pomeridiano inviato con successo a Discord.")
+        else:
+            logger.error("Impossibile inviare il sollecito a Discord.")
+        logger.info("=== AZIONE REMINDER COMPLETATA CON SUCCESSO ===")
+        sys.exit(0)
+
+    # ==========================================
+    # CASO 2: MODALITÀ COLLECT (Salvataggio ore 23:55)
+    # ==========================================
+    if args.collect:
+        logger.info("Avvio della raccolta silenziosa dei voti di fine giornata...")
+        try:
+            raw_votes = fetch_today_votes(SERVER_ID)
+        except Exception as e:
+            logger.critical(f"Raccolta fallita a causa dell'API offline: {e}")
+            sys.exit(0)
+            
+        voted_players, _ = process_daily_votes(raw_votes, monitored_players)
+        votes_history[date_str] = voted_players
+        if save_votes_history(votes_history):
+            logger.info(f"Dati di voto salvati con successo nello storico per la data {date_str}.")
+        else:
+            logger.error("Impossibile salvare i dati nello storico.")
+        logger.info("=== AZIONE RACCOLTA COMPLETATA CON SUCCESSO ===")
+        sys.exit(0)
+
+    # ==========================================
+    # CASO 3: MODALITÀ SEND-SUMMARY (Invio ore 09:00)
+    # ==========================================
+    if args.send_summary:
+        logger.info("Avvio dell'invio del riepilogo voti del giorno precedente...")
+        yesterday = today - datetime.timedelta(days=1)
+        yesterday_str = yesterday.strftime("%Y-%m-%d")
         
-        # 5. Salvataggio sicuro nello storico locale JSON (evitato nel test per non inquinare il DB)
-        if not args.test_daily:
-            votes_history[date_str] = voted_players
-            if save_votes_history(votes_history):
-                logger.info(f"Dati di voto salvati con successo nello storico per la data {date_str}.")
+        if yesterday_str in votes_history:
+            voted_players = votes_history[yesterday_str]
+            # Ricostruiamo i saltati in base a ieri
+            monitored_lower = {p.lower(): p for p in monitored_players}
+            voted_lower = {p.lower() for p in voted_players}
+            skipped_players = [orig for lower, orig in monitored_lower.items() if lower not in voted_lower]
+            
+            logger.info(f"Invio del riepilogo per ieri ({yesterday_str}): {len(voted_players)} voti, {len(skipped_players)} saltati.")
+            if send_daily_report(yesterday_str, voted_players, skipped_players):
+                logger.info("Riepilogo giornaliero inviato con successo a Discord.")
             else:
-                logger.error("Impossibile salvare i dati nello storico. Il database potrebbe essere corrotto.")
+                logger.error("Errore nell'invio del riepilogo giornaliero.")
         else:
-            logger.info("[TEST-DAILY] Il salvataggio nel database storico è stato ignorato in modalità test.")
+            msg = f"Nessun dato di voto registrato nello storico per ieri ({yesterday_str}). Lo script alle 23:55 potrebbe non essere partito o l'API era offline."
+            logger.warning(msg)
+            send_error_notification_to_discord(msg)
             
-        # 6. Invio del report quotidiano su Discord
-        if send_daily_report(date_str, voted_players, skipped_players):
-            logger.info("Report quotidiano inviato con successo a Discord.")
+        # Controllo se ieri era l'ultimo giorno del mese per inviare il report mensile
+        if is_last_day_of_month(yesterday):
+            logger.info(f"Rilevato che ieri ({yesterday_str}) era l'ultimo giorno del mese. Avvio report mensile...")
+            process_monthly_and_send_report(yesterday, votes_history, monitored_players)
         else:
-            logger.error("Impossibile inviare il report quotidiano a Discord.")
+            logger.info(f"Ieri ({yesterday_str}) non era l'ultimo giorno del mese. Nessun report mensile richiesto.")
             
-    # Esecuzione Flusso Mensile (standard o test)
-    if not is_test_mode:
-        # standard run: trigger if today is the last day of the month
-        if is_last_day_of_month(today):
-            logger.info("Rilevato l'ultimo giorno del mese corrente. Avvio report mensile...")
-            process_monthly_and_send_report(today, votes_history, monitored_players)
-        else:
-            logger.info("Oggi non è l'ultimo giorno del mese. Nessuna elaborazione mensile richiesta.")
-    elif args.test_monthly:
-        logger.info("[TEST-MONTHLY] Forza la generazione e l'invio del report mensile con i grafici...")
-        # Usa oggi come data di riferimento per i grafici
-        process_monthly_and_send_report(today, votes_history, monitored_players, is_test=True)
-        
-    logger.info("=== SCRIP COMPLETATO CON SUCCESSO ===")
+        logger.info("=== AZIONE RIEPILOGO COMPLETATA CON SUCCESSO ===")
+        sys.exit(0)
+
+    # ==========================================
+    # CASO 4: ESECUZIONE LEGACY/STANDARD O TEST MODE
+    # ==========================================
+    # (Manteniamo il flusso standard di prima per test e retrocompatibilità)
+    if is_test_mode or (not is_action_mode):
+        # Esecuzione Flusso Giornaliero (standard o test)
+        if not is_test_mode or args.test_daily:
+            try:
+                raw_votes = fetch_today_votes(SERVER_ID)
+            except Exception as e:
+                logger.critical(f"Lo script si interrompe a causa del fallimento della chiamata API: {e}")
+                sys.exit(0)
+                
+            voted_players, skipped_players = process_daily_votes(raw_votes, monitored_players)
+            
+            if not args.test_daily:
+                votes_history[date_str] = voted_players
+                save_votes_history(votes_history)
+                
+            if send_daily_report(date_str, voted_players, skipped_players):
+                logger.info("Report quotidiano inviato con successo a Discord.")
+            else:
+                logger.error("Impossibile inviare il report quotidiano a Discord.")
+                
+        # Esecuzione Flusso Mensile (standard o test)
+        if not is_test_mode:
+            if is_last_day_of_month(today):
+                logger.info("Rilevato l'ultimo giorno del mese corrente. Avvio report mensile...")
+                process_monthly_and_send_report(today, votes_history, monitored_players)
+            else:
+                logger.info("Oggi non è l'ultimo giorno del mese. Nessuna elaborazione mensile richiesta.")
+        elif args.test_monthly:
+            logger.info("[TEST-MONTHLY] Forza la generazione e l'invio del report mensile con i grafici...")
+            process_monthly_and_send_report(today, votes_history, monitored_players, is_test=True)
+            
+    logger.info("=== SCRIPT COMPLETATO CON SUCCESSO ===")
 
 if __name__ == "__main__":
     main()

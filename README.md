@@ -92,17 +92,23 @@ Puoi testare il funzionamento dello script, l'invio al Webhook Discord e la gene
 
 ---
 
-## ⏱️ Automazione con Cron (Linux)
+## ⏱️ Automazione in 3 Fasi con Cron (Linux)
 
-Per eseguire lo script in modo completamente automatico ogni giorno alle **23:55** (ideale per catturare tutti i voti della giornata prima del reset di mezzanotte), puoi impostare un Cron Job.
+Per garantire la massima stabilità ed evitare disturbi nelle ore notturne, lo script supporta un'esecuzione suddivisa in 3 fasi giornaliere. Questo flusso evita anche i ritardi dei server di GitHub Actions eseguendo lo script in modo forzato e preciso tramite crontab:
 
-1. Apri la configurazione di crontab:
-   ```bash
-   crontab -e
-   ```
-2. Aggiungi la seguente riga in fondo al file (sostituendo `/percorso/assoluto/` con il percorso reale della cartella del progetto):
+1. **Ore 20:00 - Sollecito Voti Pomeridiano** (invia un report di sollecito su chi manca senza taggare nessuno):
    ```text
-   55 23 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py > /dev/null 2>&1
+   00 20 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --reminder > /dev/null 2>&1
+   ```
+
+2. **Ore 23:55 - Raccolta Silenziosa dei Voti** (scarica i voti del giorno e li salva silenziosamente nel file `votes_history.json` prima del reset di mezzanotte, senza inviare notifiche):
+   ```text
+   55 23 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --collect > /dev/null 2>&1
+   ```
+
+3. **Ore 09:00 (Giorno Successivo) - Riepilogo Voti Giornaliero e Mensile** (legge lo storico di ieri, invia il report Embed definitivo a Discord con i tag dei ruoli e, se ieri era fine mese, genera e allega anche i grafici mensili):
+   ```text
+   00 09 * * * cd /percorso/assoluto/Minecraft_Italia_Bot && /percorso/assoluto/Minecraft_Italia_Bot/venv/bin/python3 minecraft_vote_monitor.py --send-summary > /dev/null 2>&1
    ```
 
 ---
