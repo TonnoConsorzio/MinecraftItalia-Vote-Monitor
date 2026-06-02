@@ -670,10 +670,31 @@ def main():
     else:
         logger.info("=== AVVIO SCRIPT MINECRAFT ITALIA VOTE MONITOR (MODALITÀ STANDARD CUMULATIVA) ===")
     
-    # 1. Determinazione della data odierna dello script
-    today = datetime.date.today()
+    # 1. Determinazione della data odierna dello script in fuso orario Europe/Rome
+    # per evitare disallineamenti con i server GitHub in UTC o ritardi notturni del cron.
+    try:
+        from zoneinfo import ZoneInfo
+        rome_tz = ZoneInfo("Europe/Rome")
+    except Exception:
+        # Fallback preciso per CET (UTC+1) / CEST (UTC+2) basato sulle regole dell'ora legale europea
+        import datetime as dt
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        year = now_utc.year
+        # Ultima domenica di marzo
+        dst_start = dt.datetime(year, 3, 31, 1, tzinfo=dt.timezone.utc)
+        dst_start = dst_start - dt.timedelta(days=(dst_start.weekday() + 1) % 7)
+        # Ultima domenica di ottobre
+        dst_end = dt.datetime(year, 10, 31, 1, tzinfo=dt.timezone.utc)
+        dst_end = dst_end - dt.timedelta(days=(dst_end.weekday() + 1) % 7)
+        if dst_start <= now_utc < dst_end:
+            rome_tz = dt.timezone(dt.timedelta(hours=2))
+        else:
+            rome_tz = dt.timezone(dt.timedelta(hours=1))
+
+    now_rome = datetime.datetime.now(rome_tz)
+    today = now_rome.date()
     date_str = today.strftime("%Y-%m-%d")
-    logger.info(f"Data di esecuzione: {date_str}")
+    logger.info(f"Data di esecuzione (Fuso orario Roma): {date_str} {now_rome.strftime('%H:%M:%S')}")
     
     # 2. Inizializzazione e caricamento dati
     monitored_players = load_players()
